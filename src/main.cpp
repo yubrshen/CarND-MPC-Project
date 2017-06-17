@@ -15,9 +15,6 @@
 using json = nlohmann::json;
 namespace plt = matplotlibcpp;
 
-//std::cout << "N: " << N << std::endl;
-//std::cout << "N: " << N << std::endl;
-
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
@@ -47,6 +44,7 @@ double polyeval(Eigen::VectorXd coeffs, double x) {
   return result;
 }
 
+// Compute the first derivation of the polynomial:
 double poly_deriv(Eigen::VectorXd coeffs, double x) {
   double result = 0.0;
   for (int i = 1; i < coeffs.size(); i++) {
@@ -97,30 +95,7 @@ int main() {
   bool initialized = false;
   bool monitoring = false; // determine if we want to monitor the data
   int iters = 0;          // counter of the number of iterations to control when to show the data
-  Eigen::VectorXd ptsx0(2);
-  Eigen::VectorXd ptsy0(2);
-  ptsx0 << -100, 100;
-  ptsy0 << -1, -1;
 
-  // The polynomial is fitted to a straight line so a polynomial with
-  // order 1 is sufficient.
-  auto coeffs0 = polyfit(ptsx0, ptsy0, 1);
-
-  // NOTE: free feel to play around with these
-  double x0 = -1;
-  double y0 = 10;
-  double psi0 = 0;
-  double v0 = 10;
-  // The cross track error is calculated by evaluating at polynomial at x, f(x)
-  // and subtracting y.
-  double cte0 = polyeval(coeffs0, x0) - y0;
-  // Due to the sign starting at 0, the orientation error is -f'(x).
-  // derivative of coeffs[0] + coeffs[1] * x -> coeffs[1]
-  double epsi0 = psi0 - atan(coeffs0[1]);
-
-  Eigen::VectorXd state0(6);
-  state0 << x0, y0, psi0, v0, cte0, epsi0;
-  bool bypass = false;
   h.onMessage([&mpc,
                &x_vals,
                &y_vals,
@@ -133,9 +108,6 @@ int main() {
                &initialized,
                &monitoring,
                &iters,
-               &state0,
-               &coeffs0,
-               &bypass,
                &costs
                ](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -174,9 +146,7 @@ int main() {
           for (size_t i = 0; i < ptsx.size(); i++) {
             ptsx_local[i] = (ptsx[i] - px)*cos(-psi) - (ptsy[i] - py)*sin(-psi);
             ptsy_local[i] = (ptsx[i] - px)*sin(-psi) + (ptsy[i] - py)*cos(-psi);
-            //std::cout << "ptsx_local and ptsy_local: " << ptsx_local[i] << ", " << ptsy_local[i];
           }
-          //std::cout << std::endl;
 
           // with local coordinates,
           double px_local = 0;
@@ -185,15 +155,10 @@ int main() {
 
           auto coeffs = polyfit(ptsx_local, ptsy_local, 3);
           double cte = polyeval(coeffs, px_local) - py_local;
-          double epsi = -atan(poly_deriv(coeffs, px_local));
+          double epsi = psi_local -atan(poly_deriv(coeffs, px_local));
 
           Eigen::VectorXd state(6);
           state << px_local, py_local, psi_local, v, cte, epsi;
-
-          if (bypass) {
-            coeffs = coeffs0;
-            state = state0;
-          }
 
           if (monitoring && !initialized) {
             initialized = true;
@@ -208,9 +173,6 @@ int main() {
           }
 
           auto output = mpc.Solve(state, coeffs);
-          if (bypass) {
-            state0 << output.next_vars[0], output.next_vars[1], output.next_vars[2], output.next_vars[3], output.next_vars[4], output.next_vars[5];
-          }
 
           if (monitoring && initialized) {
             x_vals.push_back(output.next_vars[0]);
@@ -224,23 +186,20 @@ int main() {
             a_vals.push_back(output.next_vars[7]);
           }
 
-          double steer_value = -output.next_vars[6]/0.436332; // 0.436332 = rad2deg(25), must negate the delta computed
-          // (cancelled) removed the negation to output.next_vars[6]/0.436332, it seems that it's not really justified
+          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
+          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
+          double steer_value = -output.next_vars[6]/0.436332; // 0.436332 = rad2deg(25), must negate the delta computed to make the drive stable, don't why yet
+
           double throttle_value = output.next_vars[7];
 
           json msgJson;
-          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
-          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle_value;
 
           //Display the MPC predicted trajectory 
-          vector<double> mpc_x_vals = output.predicted_ptsx;
-          vector<double> mpc_y_vals = output.predicted_ptsy;
-
           // the points in the simulator are connected by a Green line
-          msgJson["mpc_x"] = mpc_x_vals;
-          msgJson["mpc_y"] = mpc_y_vals;
+          msgJson["mpc_x"] = output.predicted_ptsx; // mpc_x_vals;
+          msgJson["mpc_y"] = output.predicted_ptsy; // mpc_y_vals;
 
           //Display the waypoints/reference line
           vector<double> next_x_vals;
@@ -249,15 +208,10 @@ int main() {
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
 
-          // for (size_t i = 0; i < output.predicted_ptsx.size(); i++) {
-          //   next_x_vals.push_back(output.predicted_ptsx[i]);
-          //   next_y_vals.push_back(polyeval(coeffs, output.predicted_ptsx[i]));
-          // }
-          for (int i = 0; i < ptsx_local.size(); i++) {
+          for (int i = 1; i < ptsx_local.size(); i++) { // Usually the first waypoint is behind the car not helpful, ignore it
             next_x_vals.push_back(ptsx_local[i]);
             next_y_vals.push_back(ptsy_local[i]);
           }
-
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
@@ -274,13 +228,6 @@ int main() {
           // SUBMITTING.
           this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-          // plt::subplot(2, 1, 1);
-          // plt::title("reference trajectory");
-          // plt::plot(next_x_vals, next_y_vals);
-          // plt::subplot(2, 1, 2);
-          // plt::title("predicted trajectory");
-          // plt::plot(mpc_x_vals, mpc_y_vals);
-          // plt::show();
         }
       } else {
         // Manual driving
@@ -288,23 +235,19 @@ int main() {
         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
       }
     }
-    if (monitoring && (iters == 50)) {// show the data curves
+    if (monitoring && (iters == 500)) {// show the data curves
       // Plot values
       // NOTE: feel free to play around with this.
       // It's useful for debugging!
-      plt::subplot(4, 1, 1);
+      plt::subplot(3, 1, 1);
       plt::title("CTE");
       plt::plot(cte_vals);
-      plt::subplot(4, 1, 2);
+      plt::subplot(3, 1, 2);
       plt::title("Delta (Radians)");
       plt::plot(delta_vals);
-      plt::subplot(4, 1, 3);
+      plt::subplot(3, 1, 3);
       plt::title("Velocity");
       plt::plot(v_vals);
-      plt::subplot(4, 1, 4);
-      plt::title("Trajectory");
-      plt::plot(x_vals, y_vals);
-
       plt::show();
 
     }
