@@ -132,6 +132,8 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+          double delta = (j[1]["steering_angle"]);
+          // double acceleration = j[1]["throttle"];
 
           /*
           * DONE: Calculate steering angle and throttle using MPC.
@@ -139,13 +141,27 @@ int main() {
           * Both are in between [-1, 1].
           *
           */
+
+          // Predict the state after the latency:
+
+          double px_aft_latency, py_aft_latency, psi_aft_latency, v_aft_latency;
+
+          // predict state in 100ms
+          double latency = 0.1;
+          px_aft_latency = px + v*cos(psi)*latency;
+          py_aft_latency = py + v*sin(psi)*latency;
+          psi_aft_latency = psi - v*delta/Lf*latency; //*0.436332; // 0.436332 = deg2rad(45) to be consistent with the input for steering_angle
+          // per https://discussions.udacity.com/t/here-is-some-advice-about-steering-values/276487
+          // delta should be negated
+          v_aft_latency = v + 3*latency; // assume the acceleration is 3 m/s^2
+
           // convert to vehicle's local coordinates, then all computation is in terms of the local coordinates
           Eigen::VectorXd ptsx_local(ptsx.size());
           Eigen::VectorXd ptsy_local(ptsy.size());
 
           for (size_t i = 0; i < ptsx.size(); i++) {
-            ptsx_local[i] = (ptsx[i] - px)*cos(-psi) - (ptsy[i] - py)*sin(-psi);
-            ptsy_local[i] = (ptsx[i] - px)*sin(-psi) + (ptsy[i] - py)*cos(-psi);
+            ptsx_local[i] = (ptsx[i] - px_aft_latency)*cos(-psi_aft_latency) - (ptsy[i] - py_aft_latency)*sin(-psi_aft_latency);
+            ptsy_local[i] = (ptsx[i] - px_aft_latency)*sin(-psi_aft_latency) + (ptsy[i] - py_aft_latency)*cos(-psi_aft_latency);
           }
 
           // with local coordinates,
@@ -158,7 +174,7 @@ int main() {
           double epsi = psi_local -atan(poly_deriv(coeffs, px_local));
 
           Eigen::VectorXd state(6);
-          state << px_local, py_local, psi_local, v, cte, epsi;
+          state << px_local, py_local, psi_local, v_aft_latency, cte, epsi;
 
           if (monitoring && !initialized) {
             initialized = true;
@@ -189,7 +205,10 @@ int main() {
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
           double steer_value = -output.next_vars[6]/0.436332; // 0.436332 = rad2deg(25), must negate the delta computed to make the drive stable, don't why yet
+          // per https://discussions.udacity.com/t/here-is-some-advice-about-steering-values/276487
+          // delta should be negated
 
+          // std::cout << "delta in deg: " << rad2deg(delta) << " delta: " << delta <<  " psi: " << psi << " psi_aft_latency: " << psi_aft_latency << " steer_value: " << steer_value << std::endl;
           double throttle_value = output.next_vars[7];
 
           json msgJson;
@@ -202,17 +221,17 @@ int main() {
           msgJson["mpc_y"] = output.predicted_ptsy; // mpc_y_vals;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
+          //vector<double> next_x_vals;
           vector<double> next_y_vals;
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
 
-          for (int i = 1; i < ptsx_local.size(); i++) { // Usually the first waypoint is behind the car not helpful, ignore it
-            next_x_vals.push_back(ptsx_local[i]);
-            next_y_vals.push_back(ptsy_local[i]);
+          for (size_t i = 0; i < output.predicted_ptsx.size(); i++) {
+            //next_x_vals.push_back(ptsx_local[i]);
+            next_y_vals.push_back(polyeval(coeffs, output.predicted_ptsx[i]));
           }
-          msgJson["next_x"] = next_x_vals;
+          msgJson["next_x"] = output.predicted_ptsx; // next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";

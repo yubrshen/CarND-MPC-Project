@@ -4,6 +4,8 @@
 #include <cppad/ipopt/solve.hpp>
 #include "Eigen-3.3/Eigen/Core"
 
+#include <iostream>
+
 using CppAD::AD;
 
 // Evaluate a polynomial.
@@ -22,26 +24,6 @@ AD<double> poly_deriv_CppADD(Eigen::VectorXd coeffs, AD<double> x) {
   }
   return result;
 }
-
-// DONE: Set the timestep length and duration
-size_t N = 12; // 25;
-double dt = 0.17;
-
-// This value assumes the model presented in the classroom is used.
-//
-// It was obtained by measuring the radius formed by running the vehicle in the
-// simulator around in a circle with a constant steering angle and velocity on a
-// flat terrain.
-//
-// Lf was tuned until the the radius formed by the simulating the model
-// presented in the classroom matched the previous radius.
-//
-// This is the length from front to CoG that has a similar radius.
-const double Lf = 2.67;
-
-// Both the reference cross track and orientation errors need to be 0.
-// The reference velocity is set to 40 mph.
-double ref_v = 50;              // 40 would be more stable
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should establish
@@ -68,25 +50,36 @@ class FG_eval {
     // The cost is stored is the first element of `fg`.
     // Any additions to the cost should be added to `fg[0]`.
     fg[0] = 0;
+    AD<double> cost_cte = 0;
+    AD<double> cost_epsi = 0;
+    AD<double> cost_v = 0;
+    AD<double> cost_delta =0;
+    AD<double> cost_a =0;
+    AD<double> cost_delta_diff = 0;
+    AD<double> cost_a_diff = 0;
 
     // The part of the cost based on the reference state.
     for (size_t t = 0; t < N; t++) {
-      fg[0] += 100*CppAD::pow(vars[cte_start + t], 2);
-      fg[0] += 500*CppAD::pow(vars[epsi_start + t], 2);
-      fg[0] += 0.05*CppAD::pow(vars[v_start + t] - ref_v, 2); // weaker constraint, 0.01 is too small that the car may stop
+      cost_cte += CppAD::pow(vars[cte_start + t], 2);
+      cost_epsi += CppAD::pow(vars[epsi_start + t], 2);
+      cost_v += CppAD::pow(vars[v_start + t] - ref_v, 2); // weaker constraint, 0.01 is too small that the car may stop
     }
 
     // Minimize the use of actuators.
     for (size_t t = 0; t < N - 1; t++) {
-      fg[0] += CppAD::pow(vars[delta_start + t], 2);
-      fg[0] += CppAD::pow(vars[a_start + t], 2);
+      cost_delta += CppAD::pow(vars[delta_start + t], 2);
+      cost_a += CppAD::pow(vars[a_start + t], 2);
     }
 
     // Minimize the value gap between sequential actuations.
     for (size_t t = 0; t < N - 2; t++) {
-      fg[0] += 100*CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2); // require smoother steering
-      fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+      cost_delta_diff += CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2); // require smoother steering
+      cost_a_diff += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
     }
+
+    // std::cout  << "cost_cte: " << cost_cte << " cost_epsi: " << cost_epsi << " cost_v: " << cost_v << " cost_delta: " << cost_delta << " cost_a: " << cost_a << " cost_delta_diff: " << cost_delta_diff << " cost_a_diff: " << cost_a_diff << std::endl;
+
+    fg[0] = 100*cost_cte + 32000*cost_epsi + 0.1*cost_v + cost_delta + cost_a + cost_delta_diff + cost_a_diff;
 
     //
     // Setup Constraints
@@ -276,10 +269,12 @@ MPC_OUTPUT MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   //
   bool ok = true;
   ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
-
+  if (!ok) {
+    std::cout << "solution.status is not OK" << std::endl;
+  }
   // Cost
-  auto cost = solution.obj_value;
-  std::cout << "Cost " << cost << std::endl;
+  // auto cost = solution.obj_value;
+  // std::cout << "Cost " << cost << std::endl;
 
   // DONE: Return the first actuator values. The variables can be accessed with
   // `solution.x[i]`.
