@@ -2,6 +2,44 @@
 Self-Driving Car Engineer Nanodegree Program
 
 ---
+## Performance
+
+The MPC simulated driving reached peak speed of 80 mph, ran at above 40 mph most of the time, and it successfully completed full lap of driving.
+This is an feat that it may be even challenging for human driver!
+In order to reach high speed driving, there is some slight traffic violation of driving onto 
+yellow line or forbidden area occasionally. Reducing the reference speed, can make it full compliant with traffic rules. 
+
+![](./full-lap-peak-80mph.gif)
+
+The kinematic model was used. The Ipopt optimizer was used. 
+
+## Key implementation insights
+
+- Converting from the map's global coordinate system to the local car's coordinate system at the each input-control iteration made the computation much more convenient. 
+
+- The magnitude of various cost (of cte, epsi, difference to the reference speed, etc.) are quite different. I printed out their values to understand the difference, and adjust their coefficients to the total cost. This practice helped to achieve effective search for proper cost function. 
+
+- It seems to me that the cost related to actuators are always zero. It seems that they don't much play much role in the control. 
+
+- The coefficient for the component of the difference to the reference speed may need to be larger than the other components' in order to make sure the car actually move. It might be a better cost to compute the difference to the destination for keeping the car moving. 
+
+- Even with consideration of latency by updating the initial state, the dt in the model should be larger than 0.1 to control the car driving on the road. (It's not clear why. I thought that smaller dt would 
+result in more accurate modeling.)
+
+- Larger N (the number of steps in the optimization) helps to provide sufficient space of freedom so that the car can be tolerated to violate some constraints, but eventually and overall reach optimal control. This may result in smoother drive with tolerance not following the reference trajectory to rigidly. 
+
+## Considerations for latency
+
+The initial state read from the simulated car is updated according to the kinematic model with the latency time (100ms). So that the optimizer computed the control solution from the state when 
+the actuators can be readily applied to control the car. 
+
+There is some confusion on the value of the steering read from the simulated car. By the [official documentation](https://github.com/udacity/CarND-MPC-Project/blob/master/DATA.md), it's "steering_angle (float) - The current steering angle in radians". While the control fed to the simulated car is a multiple of 0.46332 (in radian equivalent to 25 degrees). I followed the official documentation. I also tried to multiply the steering angle read by 0.46332 in the kinematic equation for the latency update for the psi, car orientation, it didn't make much difference. 
+
+For the update to the speed after latency, the acceleration is harder to obtained. It may be positively related to the throttle value, but be influenced by other factors such as car's mass, the road conditions, etc. So I assumed it to be 3m/s^2 per suggestion from the forum. I also tried with 0 acceleration. With 100ms latency, it doesn't make much difference. 
+
+Although, from modeling perspective, modifying the initial state my the kinematic model would make it more accurate, but from my experiment, it did not make much improvement in the driving control, as long as the time step dt is larger than 0.1 s (the latency is 100ms). This may imply that the latency of 100ms is too small, that the car behavior does not change much is such short time. 
+
+I could estimate the acceleration by recording the speed read from the simulated car, and compute the difference between the speeds of the last control session and current session and divided by the time gap between the two sessions. Due to my observation that the modeling the latency effect may not be critical, thus I decide not to pursuit the effort. 
 
 ## Dependencies
 
@@ -58,58 +96,3 @@ is the vehicle starting offset of a straight line (reference). If the MPC implem
 2. The `lake_track_waypoints.csv` file has the waypoints of the lake track. You could use this to fit polynomials and points and see of how well your model tracks curve. NOTE: This file might be not completely in sync with the simulator so your solution should NOT depend on it.
 3. For visualization this C++ [matplotlib wrapper](https://github.com/lava/matplotlib-cpp) could be helpful.
 
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
-
-## Hints!
-
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
