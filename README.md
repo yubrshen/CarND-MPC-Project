@@ -9,7 +9,8 @@ This is an feat that it may be even challenging for human driver!
 In order to reach high speed driving, there is some slight traffic violation of driving onto 
 yellow line or forbidden area occasionally. Reducing the reference speed, can make it full compliant with traffic rules. 
 
-![](./full-lap-peak-80mph.gif)
+
+[Here is the video for a full lap drive: Model Predicted Control for self-driving-car: peak speed 80 mph](https://youtu.be/qOFRKmgrMWk)
 
 The kinematic model was used. The Ipopt optimizer was used. 
 
